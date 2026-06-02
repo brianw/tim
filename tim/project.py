@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 import logging
 from pathlib import Path
-import shlex
 import subprocess
 from textwrap import dedent
 
@@ -106,7 +105,7 @@ class Project:
 
     def path(self, path: str | Path) -> Path:
         return Path(path).resolve()
-    
+
 
 class MacSandboxProject(Project):
     def run(self, command: str, timeout: int = 1) -> RunOutput:
@@ -124,7 +123,7 @@ class MacSandboxProject(Project):
                 '(allow file-write* (subpath "/private/tmp"))',
             ]
         )
-        exec_args = ["sandbox-exec", "-p", profile] + shlex.split(command)
+        exec_args = ["sandbox-exec", "-p", profile, "sh", "-c", command]
         logger.debug(f"Running {command=} {timeout=}")
         try:
             result = subprocess.run(
@@ -132,7 +131,6 @@ class MacSandboxProject(Project):
                 cwd=self.root,
                 capture_output=True,
                 text=True,
-                shell=True,
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired:
