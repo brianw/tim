@@ -13,8 +13,8 @@ change = (
     .desc(
         """
         Create a new CLI in `tim/cli.py` using the click library.
-        Add the click library to the project with uv.
-        Configure the CLI as an executable tool in pyproject.toml, it should be called `tim`
+        Add the click library to the project with `uv add`.
+        Configure the CLI as an executable script in pyproject.toml, it should be called `tim`
         It should print "hello world" and nothing else.
         """
     )

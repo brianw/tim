@@ -106,24 +106,7 @@ class Project:
 
     def path(self, path: str | Path) -> Path:
         return Path(path).resolve()
-
-
-class NoSandboxProject(Project):
-    def run(self, command: str, timeout: int = 1) -> RunOutput:
-        exec_args = shlex.split(command)
-        try:
-            result = subprocess.run(
-                exec_args,
-                cwd=self.root,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-        except subprocess.TimeoutExpired:
-            return RunOutput.timeout(timeout)
-
-        return RunOutput(returncode=result.returncode, stdout=result.stdout, stderr=result.stderr)
-
+    
 
 class MacSandboxProject(Project):
     def run(self, command: str, timeout: int = 1) -> RunOutput:
@@ -149,6 +132,7 @@ class MacSandboxProject(Project):
                 cwd=self.root,
                 capture_output=True,
                 text=True,
+                shell=True,
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired:
