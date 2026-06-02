@@ -1,5 +1,11 @@
+import logging
 from tim.project import MacSandboxProject, ChangeBuilder
 from tim.applychange import apply_code_change
+
+_handler = logging.StreamHandler()
+_handler.addFilter(lambda r: r.name.startswith("tim."))
+logging.basicConfig(level=logging.DEBUG, handlers=[_handler])
+
 
 project = MacSandboxProject.cwd()
 change = (

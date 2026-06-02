@@ -104,6 +104,9 @@ class Project:
     def run(self, command: str, timeout: int = 1) -> RunOutput:
         raise NotImplementedError()
 
+    def path(self, path: str | Path) -> Path:
+        return Path(path).resolve()
+
 
 class NoSandboxProject(Project):
     def run(self, command: str, timeout: int = 1) -> RunOutput:
@@ -125,6 +128,7 @@ class NoSandboxProject(Project):
 class MacSandboxProject(Project):
     def run(self, command: str, timeout: int = 1) -> RunOutput:
         root = str(self.root.resolve())
+        uv_cache = Path.home() / ".cache" / "uv"
         profile = "\n".join(
             [
                 "(version 1)",
@@ -132,11 +136,13 @@ class MacSandboxProject(Project):
                 "(deny file-write*)",
                 f'(allow file-write* (subpath "{root}"))',
                 '(allow file-write* (literal "/dev/null"))',
+                f'(allow file-write* (subpath "{uv_cache}"))',
                 '(allow file-write* (subpath "/tmp"))',
                 '(allow file-write* (subpath "/private/tmp"))',
             ]
         )
         exec_args = ["sandbox-exec", "-p", profile] + shlex.split(command)
+        logger.debug(f"Running {command=} {timeout=}")
         try:
             result = subprocess.run(
                 exec_args,
@@ -146,6 +152,9 @@ class MacSandboxProject(Project):
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired:
+            logger.debug(f"Command timeout: {command=} {timeout=}")
             return RunOutput.timeout(timeout)
 
-        return RunOutput(returncode=result.returncode, stdout=result.stdout, stderr=result.stderr)
+        output = RunOutput(returncode=result.returncode, stdout=result.stdout, stderr=result.stderr)
+        logger.debug(f"Command {command=} {timeout=} output={output!r}")
+        return output
