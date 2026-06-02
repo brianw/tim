@@ -1,0 +1,19 @@
+[project]
+name = "tim"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "openai>=2.40.0",
+    "pydantic>=2.13.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "ruff>=0.15.15",
+]
+
+[tool.ruff]
+line-length = 120
