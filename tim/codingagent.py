@@ -1,9 +1,8 @@
-import logging
+from dataclasses import dataclass
 
-# from typing import Annotated
-from .agent import Agent
-from .project import Project, Change
-from .tools import view_file, create_file, edit_file, ls, run
+from tim import Project, Change
+from tim.agent import Agent
+from tim.tools import view_file, create_file, edit_file, ls, run
 
 
 CODING_PROMPT = """
@@ -15,22 +14,30 @@ Project root is: {root}
 
 Task:
 {task}
-"""
-
-logger = logging.getLogger(__name__)
+""".strip()
 
 
-# def run_all_tests(change: Change) -> str:
-#     """Run the full project test suite and return the output"""
-#     result = change.run("pytest .", timeout=300)
-#     if result.startswith("exit: 0\n"):
-#         return "All tests passed"
-#     return result
+PASS_FAIL_PROMPT = """
+You are an expert software engineer, reviewing a project change using the tools provided.
 
+The rule you are evaluating is: {rule}
 
-# def run_single_test(change: Change, test_path: Annotated[str, "pytest test reference"]) -> str:
-#     """Run a single test, returning the output"""
-#     return change.run(f"pytest {test_path}", timeout=300)
+Do NOT create or modify files.
+Do NOT attempt to fix any problems you identify.
+Evaluate ONLY against changed files. You do not need to evaluate the entire project.
+Run source control tools to identify local changes.
+
+Project root is: {root}
+
+The change you are reviewing must:
+{task}
+
+Your final message must be a JSON response containing:
+{{
+    "reason": <a string containing the reason for your decision>,
+    "result": <a bool, with true if the rule was followed completely, false otherwise>
+}}
+""".strip()
 
 
 class CodingAgent(Agent):
@@ -42,6 +49,38 @@ class CodingAgent(Agent):
         )
         super().__init__(
             project=project,
+            change=change,
             system_prompt=prompt,
             tools=[ls, view_file, create_file, edit_file, run],
+        )
+
+
+@dataclass(frozen=True)
+class PassFailResult:
+    rule: str
+    reason: str
+    answer: bool
+
+
+class PassFailAgent(Agent):
+    def __init__(self, project: Project, change: Change, rule: str):
+        self.rule = rule
+        prompt = PASS_FAIL_PROMPT.format(
+            task=f"{change.title}\n{change.desc}\n",
+            root=project.run("pwd").stdout.strip(),
+            rule=rule,
+        )
+        super().__init__(
+            project=project,
+            change=change,
+            system_prompt=prompt,
+            tools=[ls, view_file, run],
+        )
+
+    def answer(self) -> PassFailResult:
+        response = self.extract_json(self.start())
+        return PassFailResult(
+            rule=self.rule,
+            reason=response["reason"],
+            answer=response["result"],
         )

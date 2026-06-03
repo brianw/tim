@@ -1,6 +1,6 @@
 import logging
 from typing import Annotated
-from .project import Project
+from tim import Project
 
 
 logger = logging.getLogger(__name__)

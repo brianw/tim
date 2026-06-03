@@ -1,6 +1,6 @@
 import logging
-from tim.project import MacSandboxProject, ChangeBuilder
-from tim.applychange import apply_code_change
+from tim import MacSandboxProject, ChangeBuilder
+from tim.codechange import apply_code_change
 
 _handler = logging.StreamHandler()
 _handler.addFilter(lambda r: r.name.startswith("tim."))
@@ -18,7 +18,7 @@ change = (
         It should print "hello world" and nothing else.
         """
     )
-    .should(
+    .shoulds(
         [
             "Use good, teutonic variable names",
             "No single letter variable names, outside of loop indexes or comprehensions",
@@ -26,14 +26,14 @@ change = (
             "Avoid duplicating code by extracting shared logic to reusable functions",
         ]
     )
-    .must(
+    .musts(
         [
             "Never silently swallow errors",
             "Avoid fallbacks like os.getenv('SOME_KEY', 'default-value'), fail early with os.environ['SOME_KEY']",
             "No docstrings or comments, the implementation must explain itself with good naming and composition",
         ]
     )
-    .approval(
+    .approvals(
         [
             "`uv run tim` shows the hello world message",
             "click is a project dependency in pyproject.toml",

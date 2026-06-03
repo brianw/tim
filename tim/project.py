@@ -2,79 +2,9 @@ from dataclasses import dataclass
 import logging
 from pathlib import Path
 import subprocess
-from textwrap import dedent
 
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class Change:
-    commit_message: str
-    desc: str | None
-    should: list[str]
-    must: list[str]
-    approval: list[str]
-    branch: str | None
-
-    def _format(self, title: str, steps: list[str]) -> str:
-        if len(steps) == 0:
-            return ""
-        return title + "\n" + "\n".join(f"- {step}" for step in steps)
-
-    def full_description(self) -> str:
-        return dedent(
-            f"""
-            --- {self.commit_message} ---
-            {self.desc}
-
-            {self._format("You SHOULD:", self.should)}
-
-            {self._format("You MUST:", self.must)}
-
-            {self._format("Your change is complete when:", self.approval)}
-            """
-        ).strip()
-
-
-class ChangeBuilder:
-    def __init__(self, commit_message: str):
-        self._commit_message = commit_message
-        self._desc = None
-        self._should: list[str] = []
-        self._must: list[str] = []
-        self._approval: list[str] = []
-        self._branch = None
-
-    def desc(self, desc: str) -> "ChangeBuilder":
-        self._desc = dedent(desc).strip()
-        return self
-
-    def should(self, items: list[str]) -> "ChangeBuilder":
-        self._should = list(items)
-        return self
-
-    def must(self, items: list[str]) -> "ChangeBuilder":
-        self._must = list(items)
-        return self
-
-    def approval(self, items: list[str]) -> "ChangeBuilder":
-        self._approval = list(items)
-        return self
-
-    def branch(self, branch: str) -> "ChangeBuilder":
-        self._branch = branch
-        return self
-
-    def build(self) -> Change:
-        return Change(
-            commit_message=self._commit_message,
-            desc=self._desc,
-            should=self._should,
-            must=self._must,
-            approval=self._approval,
-            branch=self._branch,
-        )
 
 
 @dataclass(frozen=True)

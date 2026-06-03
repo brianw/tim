@@ -1,0 +1,7 @@
+#!/bin/bash
+
+set -xeu
+
+ruff check
+ruff format
+pytest .

@@ -6,7 +6,7 @@ from functools import partial
 from typing import Annotated, get_args, get_origin
 from openai import OpenAI, BadRequestError
 from pydantic import Field, create_model, validate_call
-from .project import Project
+from tim import Project, Change
 
 
 ENDPOINT = "http://lab.dogg.ie:8080/v1"
@@ -66,10 +66,12 @@ class Agent:
         self,
         system_prompt: str,
         project: Project,
+        change: Change,
         tools: list[Callable],
         context_window_size: int = CONTEXT_WINDOW_SIZE,
     ):
         self.project = project
+        self.change = change
         self.context_window_size = context_window_size
         self.completion_fn = partial(
             api_client().chat.completions.create,
@@ -118,6 +120,9 @@ class Agent:
 
         raise MaxToolCallsExceeded(f"Failed to complete after {max_turns=} iterations")
 
+    def add_user_message(self, content: str):
+        self.messages.append({"role": "user", "content": content})
+
     def complete(self):
         try:
             response = self.completion_fn(messages=self.messages)
@@ -133,3 +138,13 @@ class Agent:
         message = response.choices[0].message
         self.messages.append(message)
         return response
+
+    def extract_json(self, message: str):
+        lines = message.splitlines()
+        if "```json" not in lines:
+            return json.loads(message)
+
+        start_index = lines.index("```json") + 1
+        end_index = lines.index("```", start_index)
+        json_text = "\n".join(lines[start_index:end_index])
+        return json.loads(json_text)
