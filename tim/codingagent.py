@@ -6,7 +6,7 @@ from .project import Project, Change
 from .tools import view_file, create_file, edit_file, ls, run
 
 
-SYSTEM_PROMPT = """
+CODING_PROMPT = """
 You are an expert software engineer, writing confident idiomatic code using the tools provided.
 Do not explain your code or summarise your changes.
 
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 class CodingAgent(Agent):
     def __init__(self, project: Project, change: Change):
-        prompt = SYSTEM_PROMPT.format(
+        prompt = CODING_PROMPT.format(
             task=change.full_description(),
             root=project.run("pwd").stdout.strip(),
             listing=project.run("ls -la").stdout,
