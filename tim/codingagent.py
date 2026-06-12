@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from tim import Project, Change
 from tim.agent import Agent
-from tim.tools import view_file, create_file, edit_file, ls, run
+from tim.tools import all_tools, view_file, ls, run
 
 
 CODING_PROMPT = """
@@ -51,7 +51,7 @@ class CodingAgent(Agent):
             project=project,
             change=change,
             system_prompt=prompt,
-            tools=[ls, view_file, create_file, edit_file, run],
+            tools=all_tools,
         )
 
 
