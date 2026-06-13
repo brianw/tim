@@ -34,7 +34,7 @@ class Project:
         raise NotImplementedError()
 
     def path(self, path: str | Path) -> Path:
-        return Path(path).resolve()
+        return (self.root / path).resolve()
 
 
 class MacSandboxProject(Project):

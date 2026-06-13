@@ -18,7 +18,12 @@ def view_file(
 ) -> str:
     """Show file contents with line numbers. Optionally restrict to a line range."""
     logger.debug(f"view_file {path} lines={start_line}-{end_line}")
-    lines = project.path(path).read_text().splitlines(keepends=True)
+    try:
+        lines = project.path(path).read_text().splitlines(keepends=True)
+    except IsADirectoryError:
+        return f"Tool Error: {path} is a directory"
+    except FileNotFoundError:
+        return f"Tool Error: {path} not found"
     start_index = (start_line or 1) - 1
     end_index = end_line if end_line is not None else len(lines)
     return _numbered(lines[start_index:end_index], offset=start_index + 1)
@@ -79,3 +84,12 @@ def ls(project: Project, path: Annotated[str, "Filesystem path to list"]) -> str
     result = project.run(f"ls -la {path}")
     logger.debug(f"ls {path} -> {result!r}")
     return result.formatted()
+
+
+all_tools = (  # type: ignore[assignment]
+    view_file,
+    edit_file,
+    create_file,
+    run,
+    ls,
+)

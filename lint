@@ -2,6 +2,15 @@
 
 set -xeu
 
-ruff check
-ruff format
-pytest .
+
+EXCLUDE="eval-projects"
+EVALS=""
+for arg in "$@"; do
+  case "$arg" in
+    --evals) EVALS="--evals" ;;
+  esac
+done
+
+ruff check --fix --exclude "$EXCLUDE"
+ruff format --exclude "$EXCLUDE"
+pytest . --ignore=$EXCLUDE $EVALS

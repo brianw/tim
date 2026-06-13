@@ -2,6 +2,7 @@ import inspect
 import json
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from functools import partial
 from typing import Annotated, get_args, get_origin
 from openai import OpenAI, BadRequestError
@@ -20,6 +21,13 @@ class MaxToolCallsExceeded(RuntimeError): ...
 
 
 class ContextWindowExceeded(RuntimeError): ...
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    function_name: str
+    arguments: dict
+    result: str
 
 
 def _tool_name(tool: Callable) -> str:
@@ -69,6 +77,7 @@ class Agent:
         change: Change,
         tools: list[Callable],
         context_window_size: int = CONTEXT_WINDOW_SIZE,
+        enable_reasoning: bool = True,
     ):
         self.project = project
         self.change = change
@@ -86,8 +95,11 @@ class Agent:
             for tool in tools
         }
         self.messages = [{"role": "system", "content": system_prompt}]
+        self.enable_reasoning = enable_reasoning
 
-    def before_tool_calls(self, tokens_used: int, tokens_available: int): ...
+        self.tool_calls: list[ToolCall] = []
+        self.prompt_tokens: int = 0
+        self.completion_tokens: int = 0
 
     def start(self, max_turns: int = 500) -> str:
         for turn in range(max_turns):
@@ -95,14 +107,12 @@ class Agent:
             message = response.choices[0].message
             logger.debug(f"[{turn=}] LLM response: {message}")
 
+            self.prompt_tokens = response.usage.prompt_tokens
+            self.completion_tokens = response.usage.completion_tokens
+
             if not message.tool_calls:
                 logger.debug(f"[{turn=}] No further tool calls, returning. Final response: {message.content}")
                 return message.content
-
-            self.before_tool_calls(
-                tokens_used=response.usage.prompt_tokens + response.usage.completion_tokens,
-                tokens_available=self.context_window_size,
-            )
 
             for tool_call in message.tool_calls:
                 logger.debug(f"[{turn=}] LLM requested tool: {tool_call.function.name}({tool_call.function.arguments})")
@@ -110,22 +120,35 @@ class Agent:
                 tool_callable = self.tools_by_name[tool_call.function.name]
                 result = tool_callable(self.project, **json.loads(tool_call.function.arguments))
                 logger.debug(f"[{turn=}] Tool returned: {result}")
-
-                tool_result = {
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": result,
-                }
-                self.messages.append(tool_result)
+                self.add_tool_response(tool_call, result)
 
         raise MaxToolCallsExceeded(f"Failed to complete after {max_turns=} iterations")
 
     def add_user_message(self, content: str):
         self.messages.append({"role": "user", "content": content})
 
+    def add_tool_response(self, tool_call, result: str):
+        self.messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": result,
+            }
+        )
+        self.tool_calls.append(
+            ToolCall(
+                function_name=tool_call.function.name,
+                arguments=tool_call.function.arguments,
+                result=result,
+            )
+        )
+
     def complete(self):
         try:
-            response = self.completion_fn(messages=self.messages)
+            response = self.completion_fn(
+                messages=self.messages,
+                extra_body={"chat_template_kwargs": {"enable_thinking": self.enable_reasoning}},
+            )
         except BadRequestError as e:
             if e.type == "exceed_context_size_error":
                 raise ContextWindowExceeded(e)
@@ -133,7 +156,7 @@ class Agent:
 
         tokens_used = response.usage.prompt_tokens + response.usage.completion_tokens
         if tokens_used > self.context_window_size:
-            raise ContextWindowExceeded(f"{tokens_used=} but sf agent limited to {self.context_window_size}")
+            raise ContextWindowExceeded(f"{tokens_used=} but tim agent limited to {self.context_window_size}")
 
         message = response.choices[0].message
         self.messages.append(message)
