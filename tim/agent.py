@@ -7,7 +7,7 @@ from functools import partial
 from typing import Annotated, get_args, get_origin
 from openai import OpenAI, BadRequestError
 from pydantic import Field, create_model, validate_call
-from tim import Project, Change
+from tim import Project
 
 
 ENDPOINT = "http://lab.dogg.ie:8080/v1"
@@ -74,13 +74,11 @@ class Agent:
         self,
         system_prompt: str,
         project: Project,
-        change: Change,
         tools: list[Callable],
         context_window_size: int = CONTEXT_WINDOW_SIZE,
         enable_reasoning: bool = True,
     ):
         self.project = project
-        self.change = change
         self.context_window_size = context_window_size
         self.completion_fn = partial(
             api_client().chat.completions.create,
@@ -96,10 +94,14 @@ class Agent:
         }
         self.messages = [{"role": "system", "content": system_prompt}]
         self.enable_reasoning = enable_reasoning
+        self.log_message(self.messages[0])
 
         self.tool_calls: list[ToolCall] = []
         self.prompt_tokens: int = 0
         self.completion_tokens: int = 0
+
+    def log_message(self, message, prompt_tokens=None, completion_tokens=None):
+        self.project.agent_log(self, message, prompt_tokens, completion_tokens)
 
     def start(self, max_turns: int = 500) -> str:
         for turn in range(max_turns):
@@ -125,16 +127,18 @@ class Agent:
         raise MaxToolCallsExceeded(f"Failed to complete after {max_turns=} iterations")
 
     def add_user_message(self, content: str):
-        self.messages.append({"role": "user", "content": content})
+        message = {"role": "user", "content": content}
+        self.messages.append(message)
+        self.log_message(message)
 
     def add_tool_response(self, tool_call, result: str):
-        self.messages.append(
-            {
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "content": result,
-            }
-        )
+        message = {
+            "role": "tool",
+            "tool_call_id": tool_call.id,
+            "content": result,
+        }
+        self.messages.append(message)
+        self.log_message(message)
         self.tool_calls.append(
             ToolCall(
                 function_name=tool_call.function.name,
@@ -160,6 +164,9 @@ class Agent:
 
         message = response.choices[0].message
         self.messages.append(message)
+        self.log_message(
+            message, prompt_tokens=response.usage.prompt_tokens, completion_tokens=response.usage.completion_tokens
+        )
         return response
 
     def extract_json(self, message: str):

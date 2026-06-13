@@ -27,8 +27,8 @@ The engineer may refer to existing code or system behavior. Use tools to underst
 state if it will help the answer.
 
 You MUST use the code_change tool when changing or adding project code.
-This tool ensures edits conform to coding standards and guidelines. Changes made without this tool will be rejected.
-Do not use create_file or edit_file directly for code.
+- This tool ensures edits conform to coding standards and guidelines. Changes made without this tool will be rejected.
+- You MUST give the code_change tool your full, researched plan.
 
 Project root is: {root}
 {listing}
@@ -96,7 +96,6 @@ class CliAgent(Agent):
         )
         super().__init__(
             project=project,
-            change=None,
             system_prompt=prompt,
             tools=[code_change, view_file, run, ls],
         )

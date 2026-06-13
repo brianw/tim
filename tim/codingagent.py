@@ -49,7 +49,6 @@ class CodingAgent(Agent):
         )
         super().__init__(
             project=project,
-            change=change,
             system_prompt=prompt,
             tools=all_tools,
         )
@@ -72,7 +71,6 @@ class PassFailAgent(Agent):
         )
         super().__init__(
             project=project,
-            change=change,
             system_prompt=prompt,
             tools=[ls, view_file, run],
         )
