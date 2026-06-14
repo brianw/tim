@@ -23,6 +23,9 @@ class MaxToolCallsExceeded(RuntimeError): ...
 class ContextWindowExceeded(RuntimeError): ...
 
 
+class MaxAnswerAttempsExceeded(Exception): ...
+
+
 @dataclass(frozen=True)
 class ToolCall:
     function_name: str
@@ -151,7 +154,12 @@ class Agent:
         try:
             response = self.completion_fn(
                 messages=self.messages,
-                extra_body={"chat_template_kwargs": {"enable_thinking": self.enable_reasoning}},
+                extra_body={
+                    "chat_template_kwargs": {
+                        "enable_thinking": self.enable_reasoning,
+                        "preserve_thinking": True,
+                    }
+                },
             )
         except BadRequestError as e:
             if e.type == "exceed_context_size_error":
@@ -178,3 +186,34 @@ class Agent:
         end_index = lines.index("```", start_index)
         json_text = "\n".join(lines[start_index:end_index])
         return json.loads(json_text)
+
+    def answer_format_prompt(self) -> str:
+        return ""
+
+    def validate_answer(self, answer: dict) -> str:
+        return True
+
+    def format_answer(self, answer: dict):
+        return answer
+
+    def answer(self, max_attempts: int = 5):
+        for attempt in range(max_attempts):
+            logger.info(f"[{attempt=}] Prompting for answer")
+            try:
+                response = self.extract_json(self.start())
+            except json.decoder.JSONDecodeError as e:
+                logger.info(f"[{attempt=}] Malformed response: {e!r}")
+                self.add_user_message(f"Your last message was unparseable: {e}\n{self.answer_format_prompt()}")
+                continue
+
+            if not self.validate_answer(response):
+                logger.info(f"[{attempt=}] Answer validation failed: {response}")
+                self.add_user_message(
+                    f"Your last message did not match the required format. Please correct.\n{self.answer_format_prompt()}"
+                )
+                continue
+
+            logger.info(f"[{attempt=}] Answered")
+            return self.format_answer(response)
+
+        raise MaxAnswerAttempsExceeded(f"Failed to get a valid response after {max_attempts=}")
