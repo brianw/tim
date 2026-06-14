@@ -83,6 +83,7 @@ class PassFailAgent(Agent):
             project=project,
             system_prompt=prompt,
             tools=[ls, view_file, run],
+            enable_reasoning=False,
         )
 
     def answer_format_prompt(self) -> str:
