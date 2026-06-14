@@ -189,7 +189,7 @@ class ApprovalConditionsAgent(Agent):
 
 class ExtractTitleAgent(Agent):
     PROMPT = "Create a one sentence title for this plan that captures the intent of the change:\n\n{plan}\n\n{format}"
-    ANSWER_FORMAT = "You must return a valid JSON object in the format: {{'title': <str containing title of change>}}"
+    ANSWER_FORMAT = "You must return a valid JSON object in the format: {'title': <str containing title of change>}"
 
     def __init__(self, project, plan):
         super().__init__(

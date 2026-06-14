@@ -54,7 +54,11 @@ class PassFailAgent(Agent):
     Do NOT create or modify files.
     Do NOT attempt to fix any problems you identify.
     Evaluate ONLY against changed files. You do not need to evaluate the entire project.
-    Run source control tools to identify local changes.
+    Run source control tools to identify:
+    - changes to existing files
+    - newly added files
+
+    You do not need to examine previous commits, only active unstaged changes.
 
     Project root is: {root}
 
@@ -65,10 +69,10 @@ class PassFailAgent(Agent):
     PASS_FAIL_FORMAT = dedent(
         """
     Your final message must be a JSON response containing:
-    {{
+    {
         "reason": <a string containing the reason for your decision>,
         "result": <a bool, with true if the rule was followed completely, false otherwise>
-    }}
+    }
     """
     ).strip()
 
