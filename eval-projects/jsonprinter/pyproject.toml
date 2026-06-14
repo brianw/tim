@@ -7,3 +7,6 @@ requires-python = ">=3.13"
 dependencies = [
     "click",
 ]
+
+[tool.uv]
+exclude-newer = "1 week"

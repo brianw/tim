@@ -13,6 +13,9 @@ from tim import Project
 ENDPOINT = "http://lab.dogg.ie:8080/v1"
 MODEL = "local"
 CONTEXT_WINDOW_SIZE = 131_072
+ESTIMATED_CHARACTERS_PER_TOKEN = 2.5
+MAX_TOOL_RESULT_TOKENS = CONTEXT_WINDOW_SIZE * 0.2
+
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +128,14 @@ class Agent:
                 tool_callable = self.tools_by_name[tool_call.function.name]
                 result = tool_callable(self.project, **json.loads(tool_call.function.arguments))
                 logger.debug(f"[{turn=}] Tool returned: {result}")
+
+                estimated_tokens = len(result) / ESTIMATED_CHARACTERS_PER_TOKEN
+                if estimated_tokens > MAX_TOOL_RESULT_TOKENS:
+                    logger.debug(
+                        f"[{turn=}] Tool response exceeded {MAX_TOOL_RESULT_TOKENS=} ({estimated_tokens=}, len(result)={len(result)}), asking LLM to be more precise"
+                    )
+                    result = f"Tool use error: the tool returned a response containing {len(result)} characters, too large for this conversation. Please refine your operation."
+
                 self.add_tool_response(tool_call, result)
 
         raise MaxToolCallsExceeded(f"Failed to complete after {max_turns=} iterations")

@@ -47,33 +47,33 @@ class PassFailResult:
 class PassFailAgent(Agent):
     PROMPT = dedent(
         """
-    You are an expert software engineer, reviewing a project change using the tools provided.
+        You are an expert software engineer, reviewing a project change using the tools provided.
 
-    The rule you are evaluating is: {rule}
+        The rule you are evaluating is: {rule}
 
-    Do NOT create or modify files.
-    Do NOT attempt to fix any problems you identify.
-    Evaluate ONLY against changed files. You do not need to evaluate the entire project.
-    Run source control tools to identify:
-    - changes to existing files
-    - newly added files
+        Do NOT create or modify files.
+        Do NOT attempt to fix any problems you identify.
+        Evaluate ONLY against changed files. You do not need to evaluate the entire project.
+        Run source control tools to identify:
+        - changes to existing files
+        - newly added files
 
-    You do not need to examine previous commits, only active unstaged changes.
+        DO NOT examine previous commits, only active unstaged changes.
 
-    Project root is: {root}
+        Project root is: {root}
 
-    {format}
-    """
+        {format}
+        """
     ).strip()
 
     PASS_FAIL_FORMAT = dedent(
         """
-    Your final message must be a JSON response containing:
-    {
-        "reason": <a string containing the reason for your decision>,
-        "result": <a bool, with true if the rule was followed completely, false otherwise>
-    }
-    """
+        Your final message must be a JSON response containing:
+        {
+            "reason": <a string containing the reason for your decision>,
+            "result": <a bool, with true if the rule was followed completely, false otherwise>
+        }
+        """
     ).strip()
 
     def __init__(self, project: Project, rule: str):
@@ -87,7 +87,6 @@ class PassFailAgent(Agent):
             project=project,
             system_prompt=prompt,
             tools=[ls, view_file, run],
-            enable_reasoning=False,
         )
 
     def answer_format_prompt(self) -> str:

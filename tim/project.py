@@ -1,10 +1,12 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from dataclasses import dataclass
 import logging
 import json
 import os
 from pathlib import Path
 import subprocess
+
+from tim.agentmessage import AgentMessage, ToolCall
 
 
 logger = logging.getLogger(__name__)
@@ -23,6 +25,58 @@ class RunOutput:
 
     def formatted(self) -> str:
         return f"<returncode>{self.returncode}</returncode>\n<stdout>{self.stdout}</stdout>\n<stderr>{self.stderr}</stderr>"
+
+
+def _extract_role(message) -> str:
+    if isinstance(message, dict):
+        return message["role"]
+    return message.role
+
+
+def _extract_content(message) -> str:
+    if isinstance(message, dict):
+        return message["content"]
+    return message.content
+
+
+def _extract_tool_call_id(message) -> str:
+    if isinstance(message, dict):
+        return message["tool_call_id"]
+    return message.tool_call_id
+
+
+def _convert_tool_calls(raw_tool_calls):
+    tool_calls = []
+    for raw_call in raw_tool_calls:
+        if isinstance(raw_call, dict):
+            tool_calls.append(
+                ToolCall(
+                    id=raw_call["id"],
+                    function_name=raw_call["function"]["name"],
+                    arguments=raw_call["function"]["arguments"],
+                )
+            )
+        else:
+            tool_calls.append(
+                ToolCall(
+                    id=raw_call.id,
+                    function_name=raw_call.function.name,
+                    arguments=raw_call.function.arguments,
+                )
+            )
+    return tool_calls
+
+
+def _extract_reasoning(message):
+    if isinstance(message, dict):
+        return message.get("reasoning_content")
+    return getattr(message, "reasoning_content", None)
+
+
+def _extract_tool_calls_data(message):
+    if isinstance(message, dict):
+        return message.get("tool_calls")
+    return getattr(message, "tool_calls", None)
 
 
 @dataclass(frozen=True)
@@ -49,74 +103,70 @@ class Project:
             out.write(json.dumps(logline))
             out.write("\n")
 
-    def agent_log(self, agent, message, prompt_tokens=None, completion_tokens=None):
-        logline = {
-            "source": {
-                "agent": agent.__class__.__name__,
-                "agent_instance": id(agent),
-            },
-            "at": datetime.now(timezone.utc).isoformat(),
-            "message": _format_message(message),
-        }
-        if prompt_tokens is not None or completion_tokens is not None:
-            usage = {
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-            }
-            logline["usage"] = usage
-        self._write_agent_log(logline)
+    def _build_agent_message(
+        self,
+        agent_name: str,
+        agent_instance: int,
+        message,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+    ) -> AgentMessage:
+        message_role = _extract_role(message)
 
+        match message_role:
+            case "user":
+                content = _extract_content(message)
+                return AgentMessage.create_user(
+                    agent=agent_name,
+                    agent_instance=agent_instance,
+                    content=content,
+                )
+            case "system":
+                content = _extract_content(message)
+                return AgentMessage.create_system(
+                    agent=agent_name,
+                    agent_instance=agent_instance,
+                    content=content,
+                )
+            case "tool":
+                tool_call_id = _extract_tool_call_id(message)
+                content = _extract_content(message)
+                return AgentMessage.create_tool(
+                    agent=agent_name,
+                    agent_instance=agent_instance,
+                    tool_call_id=tool_call_id,
+                    content=content,
+                )
+            case "assistant":
+                content = _extract_content(message)
+                reasoning = _extract_reasoning(message)
+                raw_tool_calls = _extract_tool_calls_data(message)
+                tool_calls = _convert_tool_calls(raw_tool_calls) if raw_tool_calls else []
+                return AgentMessage.create_assistant(
+                    agent=agent_name,
+                    agent_instance=agent_instance,
+                    content=content,
+                    reasoning=reasoning,
+                    tool_calls=tool_calls or None,
+                    prompt_tokens=prompt_tokens or 0,
+                    completion_tokens=completion_tokens or 0,
+                )
+            case unknown_role:
+                raise ValueError(f"Unknown message role: {unknown_role}")
 
-def _format_user_message(message) -> dict:
-    return {
-        "role": "user",
-        "content": message["content"],
-    }
+    def agent_log(self, agent, message, prompt_tokens: int | None = None, completion_tokens: int | None = None):
+        agent_name = agent.__class__.__name__
+        agent_instance = id(agent)
 
+        agent_message = self._build_agent_message(
+            agent_name=agent_name,
+            agent_instance=agent_instance,
+            message=message,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        )
 
-def _format_system_message(message) -> dict:
-    return {
-        "role": "system",
-        "content": message["content"],
-    }
-
-
-def _format_assistant_message(message) -> dict:
-    tool_calls = []
-    if message.tool_calls is not None:
-        tool_calls = message.tool_calls
-    reasoning_content = None
-    if hasattr(message, "reasoning_content"):
-        reasoning_content = message.reasoning_content
-    return {
-        "role": "assistant",
-        "content": message.content,
-        "reasoning": reasoning_content,
-        "tool_calls": [
-            {"id": tool.id, "name": tool.function.name, "arguments": tool.function.arguments} for tool in tool_calls
-        ],
-    }
-
-
-def _format_tool_message(message) -> dict:
-    return {
-        "role": "tool",
-        "id": message["tool_call_id"],
-        "content": message["content"],
-    }
-
-
-def _format_message(message) -> dict:
-    if isinstance(message, dict):
-        role = message["role"]
-    else:
-        role = message.role
-    return {
-        "user": _format_user_message,
-        "assistant": _format_assistant_message,
-        "tool": _format_tool_message,
-        "system": _format_system_message,
-    }[role](message)
+        self._write_agent_log(agent_message.to_dict())
 
 
 class MacSandboxProject(Project):
