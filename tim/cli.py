@@ -1,9 +1,12 @@
 import logging
+import re
+from pathlib import Path
 
 import click
 
 from tim.cliagent import CliAgent
 from tim import MacSandboxProject
+from tim.logviewer import html_from_log
 
 
 def _configure_logging(verbosity: int) -> None:
@@ -33,3 +36,18 @@ def main(verbose: int) -> None:
 @main.command()
 def run() -> None:
     print("run subcommand invoked")
+
+
+@main.command()
+@click.argument("log_file", type=click.Path(exists=True))
+@click.argument("output_path", type=click.Path(), required=False)
+def log(log_file: str, output_path: str | None) -> None:
+    log_path = Path(log_file)
+
+    if output_path is None:
+        stem = re.sub(r"\.jsonl$", "", log_path.name, flags=re.IGNORECASE)
+        output_path = f"{stem}.html"
+
+    html_content = html_from_log(log_file)
+    Path(output_path).write_text(html_content, encoding="utf-8")
+    click.echo(f"Wrote {output_path}")

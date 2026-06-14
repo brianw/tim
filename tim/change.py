@@ -27,8 +27,6 @@ class Change:
             {self._format("You SHOULD:", self.shoulds)}
 
             {self._format("You MUST:", self.musts)}
-
-            {self._format("Your change is complete when:", self.approvals)}
             """
         ).strip()
 
