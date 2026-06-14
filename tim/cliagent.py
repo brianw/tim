@@ -89,6 +89,10 @@ def code_change(
     return response
 
 
+# EXPERIMENT: Have a planning session with an agent to build a full Change instance
+# before handing off to CodingAgent
+
+
 class CliAgent(Agent):
     def __init__(self, project: Project):
         prompt = CLI_PROMPT.format(

@@ -95,12 +95,12 @@ class PassFailAgent(Agent):
                 response = self.extract_json(self.start())
             except json.decoder.JSONDecodeError as e:
                 logger.info(f"[{attempt=}] Malformed response: {e!r}")
-                self.add_user_message(PASS_FAIL_FORMAT)
+                self.add_user_message(f"Your last message was unparseable: {e}\n{PASS_FAIL_FORMAT}")
                 continue
 
             if "reason" not in response or "result" not in response:
                 logger.info(f"[{attempt=}] Missing expected fields in response: {response}")
-                self.add_user_message(PASS_FAIL_FORMAT)
+                self.add_user_message(f"Your last message was missing required fields.\n{PASS_FAIL_FORMAT}")
                 continue
 
             logger.info(f"[{attempt=}] {self.rule} ? {response['result']}")
