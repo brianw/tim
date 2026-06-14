@@ -57,6 +57,7 @@ def code_change(
                 "Functions should be short, no larger than 20 lines",
                 "Avoid duplicating code by extracting shared logic to reusable functions",
                 "Minimise code inside an except block (extract to another function if neccessary)",
+                "Follow the same patterns and conventions as the rest of the codebase",
             ]
         )
         .musts(

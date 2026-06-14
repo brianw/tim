@@ -13,6 +13,8 @@ def apply_code_change(project: Project, change: Change, attempts: int = 20):
 
     logger.info(f"Starting code change for: {change.title}")
     for attempt in range(attempts):
+        # EXPERIMENT: new coding agent instance every loop?
+
         coding_agent.start()
         logger.debug(f"[{attempt=}] Coding agent finished for: {change.title}")
 

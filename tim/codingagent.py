@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+import json
+import logging
 
 from tim import Project, Change
 from tim.agent import Agent
@@ -32,12 +34,19 @@ Project root is: {root}
 The change you are reviewing must:
 {task}
 
+{format}
+""".strip()
+
+PASS_FAIL_FORMAT = """
 Your final message must be a JSON response containing:
 {{
     "reason": <a string containing the reason for your decision>,
     "result": <a bool, with true if the rule was followed completely, false otherwise>
 }}
 """.strip()
+
+
+logger = logging.getLogger(__name__)
 
 
 class CodingAgent(Agent):
@@ -61,6 +70,9 @@ class PassFailResult:
     answer: bool
 
 
+class MaxAnswerAttempsExceeded(Exception): ...
+
+
 class PassFailAgent(Agent):
     def __init__(self, project: Project, change: Change, rule: str):
         self.rule = rule
@@ -68,6 +80,7 @@ class PassFailAgent(Agent):
             task=f"{change.title}\n{change.desc}\n",
             root=project.run("pwd").stdout.strip(),
             rule=rule,
+            format=PASS_FAIL_FORMAT,
         )
         super().__init__(
             project=project,
@@ -75,10 +88,25 @@ class PassFailAgent(Agent):
             tools=[ls, view_file, run],
         )
 
-    def answer(self) -> PassFailResult:
-        response = self.extract_json(self.start())
-        return PassFailResult(
-            rule=self.rule,
-            reason=response["reason"],
-            answer=response["result"],
-        )
+    def answer(self, max_attempts: int = 5) -> PassFailResult:
+        for attempt in range(max_attempts):
+            logger.info(f"[{attempt=}] Attempting to answer: {self.rule}")
+            try:
+                response = self.extract_json(self.start())
+            except json.decoder.JSONDecodeError as e:
+                logger.info(f"[{attempt=}] Malformed response: {e!r}")
+                self.add_user_message(PASS_FAIL_FORMAT)
+                continue
+
+            if "reason" not in response or "result" not in response:
+                logger.info(f"[{attempt=}] Missing expected fields in response: {response}")
+                self.add_user_message(PASS_FAIL_FORMAT)
+                continue
+
+            logger.info(f"[{attempt=}] {self.rule} ? {response['result']}")
+            return PassFailResult(
+                rule=self.rule,
+                reason=response["reason"],
+                answer=response["result"],
+            )
+        raise MaxAnswerAttempsExceeded(f"Failed to get a valid response after {max_attempts=}")
