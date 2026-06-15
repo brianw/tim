@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>llama-server metrics</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #101418; color: #e8edf2; }
+    body { max-width: 1500px; margin: 0 auto; padding: 24px; }
+    h1 { margin: 0 0 20px; font-size: 24px; }
+    #summary, #charts { display: grid; gap: 16px; }
+    #summary { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); margin-bottom: 16px; }
+    #charts { grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); }
+    .card, .chart { background: #182027; border: 1px solid #29343e; border-radius: 8px; padding: 16px; }
+    .label { color: #9caab6; font-size: 13px; }
+    .value { font-size: 24px; margin-top: 6px; }
+    .chart { height: 300px; }
+    canvas { width: 100% !important; height: 100% !important; }
+  </style>
+</head>
+<body>
+  <h1>llama-server metrics</h1>
+  <div id="summary"></div>
+  <div id="charts"></div>
+  <script type="module">
+    const metric = name => `llamacpp:${name}`
+    const colours = ["#63b3ed", "#f6ad55", "#68d391"]
+    const chartDefinitions = [
+      ["Prompt evaluation speed", [["Prompt evaluation tokens/s", "prompt_tokens_total", "prompt_seconds_total"]]],
+      ["Generation speed", [["Generation tokens/s", "tokens_predicted_total", "tokens_predicted_seconds_total"]]],
+      ["Context high-water mark", [["Tokens", "n_tokens_max"]]],
+      ["Traffic rate", [["Prompt tokens/s over wall time", "prompt_tokens_total", true], ["Generated tokens/s over wall time", "tokens_predicted_total", true]]],
+      ["Work rates", [["Prompt seconds/s", "prompt_seconds_total", true], ["Generation seconds/s", "tokens_predicted_seconds_total", true]]]
+    ]
+    const summaryDefinitions = [
+      ["Context high-water", "n_tokens_max", " tokens", 0, true]
+    ]
+    const charts = chartDefinitions.map(([title, series], chartIndex) => {
+      const container = document.createElement("div")
+      container.className = "chart"
+      const canvas = document.createElement("canvas")
+      container.append(canvas)
+      document.querySelector("#charts").append(container)
+      return new Chart(canvas, {
+        type: "line",
+        data: { datasets: series.map(([label], index) => ({ label, borderColor: colours[index], pointRadius: 0, tension: 0.15 })) },
+        options: {
+          animation: false,
+          maintainAspectRatio: false,
+          parsing: false,
+          plugins: { title: { display: true, text: title } },
+          scales: { x: { type: "linear", ticks: { callback: value => new Date(value).toLocaleTimeString() } }, y: { beginAtZero: true } }
+        }
+      })
+    })
+    const rate = (samples, index, name) => {
+      if (index === 0) return null
+      const elapsedSeconds = (samples[index].timestamp - samples[index - 1].timestamp) / 1000
+      const difference = samples[index].metrics[metric(name)] - samples[index - 1].metrics[metric(name)]
+      return difference / elapsedSeconds
+    }
+    const ratio = (samples, index, numerator, denominator) => {
+      if (index === 0) return null
+      const numeratorDifference = samples[index].metrics[metric(numerator)] - samples[index - 1].metrics[metric(numerator)]
+      const denominatorDifference = samples[index].metrics[metric(denominator)] - samples[index - 1].metrics[metric(denominator)]
+      return denominatorDifference ? numeratorDifference / denominatorDifference : null
+    }
+    const render = samples => {
+      const latest = samples.at(-1)
+      const contextUtilisation = latest.metrics[metric("n_tokens_max")] / latest.context_window * 100
+      const summaries = [
+        ...summaryDefinitions.map(([label, name, unit, decimals, groupThousands]) => [label, `${groupThousands ? latest.metrics[metric(name)].toLocaleString() : latest.metrics[metric(name)].toFixed(decimals)}${unit}`]),
+        ["Context window", `${latest.context_window.toLocaleString()} tokens`],
+        ["High-water utilisation", `${contextUtilisation.toFixed(2)}%`]
+      ]
+      document.querySelector("#summary").innerHTML = summaries.map(([label, value]) =>
+        `<div class="card"><div class="label">${label}</div><div class="value">${value}</div></div>`
+      ).join("")
+      chartDefinitions.forEach(([, series], chartIndex) => {
+        charts[chartIndex].data.datasets.forEach((dataset, seriesIndex) => {
+          const [, name, calculation] = series[seriesIndex]
+          dataset.data = samples.map((sample, index) => ({
+            x: sample.timestamp,
+            y: calculation === true ? rate(samples, index, name) : calculation ? ratio(samples, index, name, calculation) : sample.metrics[metric(name)]
+          }))
+        })
+        charts[chartIndex].update()
+      })
+    }
+    const refresh = async () => {
+      const response = await fetch("/samples")
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+      render(await response.json())
+    }
+    await refresh()
+    setInterval(refresh, 5000)
+  </script>
+</body>
+</html>
