@@ -63,7 +63,7 @@ def code_change(
             [
                 "Never silently swallow errors",
                 "Avoid fallbacks like os.getenv('SOME_KEY', 'default-value'), fail early with os.environ['SOME_KEY']",
-                "No docstrings or comments, the implementation must explain itself with good naming and composition",
+                "No docstrings or comments, the implementation must explain itself with good naming and composition -- except where required for tool definitions (e.g. tim/tools.py)",
                 "No imports inside of functions",
             ]
         )
@@ -178,6 +178,7 @@ class ApprovalConditionsAgent(Agent):
                 task=task, root=project.run("pwd").stdout.strip(), format=self.ANSWER_FORMAT
             ),
             tools=[view_file, run, ls],
+            enable_reasoning=True,
         )
 
     def answer_format_prompt(self) -> str:
