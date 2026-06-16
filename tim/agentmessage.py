@@ -45,18 +45,24 @@ class ToolCall:
 class AgentMessageSource:
     agent: str
     agent_instance: int
+    parent: AgentMessageSource | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "agent": self.agent,
             "agent_instance": self.agent_instance,
         }
+        if self.parent is not None:
+            result["parent"] = self.parent.to_dict()
+        return result
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AgentMessageSource:
+        parent = cls.from_dict(data["parent"]) if data.get("parent") else None
         return cls(
             agent=data["agent"],
             agent_instance=data["agent_instance"],
+            parent=parent,
         )
 
 
@@ -145,6 +151,7 @@ class ToolMessage(_BaseMessage):
     role: Literal["tool"] = "tool"
     tool_call_id: str = Field(alias="id")
     content: str
+    duration: float
 
     @field_validator("tool_call_id", mode="before")
     @classmethod
@@ -158,6 +165,7 @@ class ToolMessage(_BaseMessage):
             "role": self.role,
             "id": self.tool_call_id,
             "content": self.content,
+            "duration": self.duration,
         }
 
 
@@ -193,17 +201,21 @@ class AgentMessage:
         )
 
     @classmethod
-    def create_user(cls, agent: str, agent_instance: int, content: str) -> AgentMessage:
+    def create_user(
+        cls, agent: str, agent_instance: int, content: str, parent: AgentMessageSource | None = None
+    ) -> AgentMessage:
         return cls(
-            source=AgentMessageSource(agent=agent, agent_instance=agent_instance),
+            source=AgentMessageSource(agent=agent, agent_instance=agent_instance, parent=parent),
             timestamp=_utc_now_iso(),
             message=UserMessage(content=content),
         )
 
     @classmethod
-    def create_system(cls, agent: str, agent_instance: int, content: str) -> AgentMessage:
+    def create_system(
+        cls, agent: str, agent_instance: int, content: str, parent: AgentMessageSource | None = None
+    ) -> AgentMessage:
         return cls(
-            source=AgentMessageSource(agent=agent, agent_instance=agent_instance),
+            source=AgentMessageSource(agent=agent, agent_instance=agent_instance, parent=parent),
             timestamp=_utc_now_iso(),
             message=SystemMessage(content=content),
         )
@@ -218,9 +230,10 @@ class AgentMessage:
         tool_calls: list[ToolCall] | None = None,
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
+        parent: AgentMessageSource | None = None,
     ) -> AgentMessage:
         return cls(
-            source=AgentMessageSource(agent=agent, agent_instance=agent_instance),
+            source=AgentMessageSource(agent=agent, agent_instance=agent_instance, parent=parent),
             timestamp=_utc_now_iso(),
             message=AssistantMessage(
                 content=content,
@@ -240,9 +253,11 @@ class AgentMessage:
         agent_instance: int,
         tool_call_id: str,
         content: str,
+        duration: float,
+        parent: AgentMessageSource | None = None,
     ) -> AgentMessage:
         return cls(
-            source=AgentMessageSource(agent=agent, agent_instance=agent_instance),
+            source=AgentMessageSource(agent=agent, agent_instance=agent_instance, parent=parent),
             timestamp=_utc_now_iso(),
-            message=ToolMessage(id=tool_call_id, content=content),
+            message=ToolMessage(id=tool_call_id, content=content, duration=duration),
         )

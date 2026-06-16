@@ -1,6 +1,6 @@
 import unittest
 
-from main import METRIC_NAMES, parse_context_window, parse_metrics
+from llmmetrics import METRIC_NAMES, parse_context_window, parse_metrics
 
 
 METRICS_BODY = "\n".join(f"# TYPE {name} gauge\n{name} {index}" for index, name in enumerate(sorted(METRIC_NAMES)))

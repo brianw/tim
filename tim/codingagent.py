@@ -24,17 +24,13 @@ class CodingAgent(Agent):
     """
     ).strip()
 
-    def __init__(self, project: Project, change: Change):
+    def __init__(self, project: Project, change: Change, **kwargs):
         prompt = self.PROMPT.format(
             task=change.full_description(),
             root=project.run("pwd").stdout.strip(),
             listing=project.run("ls -la").stdout,
         )
-        super().__init__(
-            project=project,
-            system_prompt=prompt,
-            tools=all_tools,
-        )
+        super().__init__(project=project, system_prompt=prompt, tools=all_tools, **kwargs)
 
 
 @dataclass(frozen=True)
@@ -76,18 +72,14 @@ class PassFailAgent(Agent):
         """
     ).strip()
 
-    def __init__(self, project: Project, rule: str):
+    def __init__(self, project: Project, rule: str, **kwargs):
         self.rule = rule
         prompt = self.PROMPT.format(
             root=project.run("pwd").stdout.strip(),
             rule=rule,
             format=self.PASS_FAIL_FORMAT,
         )
-        super().__init__(
-            project=project,
-            system_prompt=prompt,
-            tools=[ls, view_file, run],
-        )
+        super().__init__(project=project, system_prompt=prompt, tools=[ls, view_file, run], **kwargs)
 
     def answer_format_prompt(self) -> str:
         return self.PASS_FAIL_FORMAT

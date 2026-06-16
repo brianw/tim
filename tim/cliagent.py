@@ -28,10 +28,15 @@ def _print_llm(text: str) -> None:
 
 def code_change(
     project: Project,
+    parent_agent: Agent,
     title: Annotated[str, "A brief title for this change"],
     plan: Annotated[
         str,
         "Your detailed plan for this change, including approach to take, filenames to modify and commands to run. You MUST provide as much detail as possible.",
+    ],
+    files: Annotated[
+        list[str],
+        "The list of file paths that need to be examined or modified for this change.",
     ],
 ) -> str:
     """
@@ -43,12 +48,15 @@ def code_change(
 
     _console.print(f"*** Starting coding agent for: {title} ***", style=STYLE_STATUS)
     _console.print(Markdown(plan), style=STYLE_LLM)
+    _console.print("\nFiles involved:", style=STYLE_STATUS)
+    for file in files:
+        _console.print(f" - {file}", style=STYLE_STATUS)
     _console.print("\nApproval steps:", style=STYLE_STATUS)
 
-    complete_when = ApprovalConditionsAgent(project, f"--- {title} ---\n{plan}").answer()
+    complete_when = ApprovalConditionsAgent(project, f"--- {title} ---\n{plan}", parent=parent_agent).answer()
     change = (
         ChangeBuilder(title)
-        .desc(plan)
+        .desc(f"{plan}\nFiles to examine/modify: {files}\n")
         .shoulds(
             [
                 "Use good, teutonic variable names",
@@ -62,7 +70,7 @@ def code_change(
         .musts(
             [
                 "Never silently swallow errors",
-                "Avoid fallbacks like os.getenv('SOME_KEY', 'default-value'), fail early with os.environ['SOME_KEY']",
+                "Avoid fallbacks and default values, fail early instead. E.g. when reading an environment variable always use os.environ['SOME_KEY'] rather than os.getenv('SOME_KEY', 'default-value')",
                 "No docstrings or comments, the implementation must explain itself with good naming and composition -- except where required for tool definitions (e.g. tim/tools.py)",
                 "No imports inside of functions",
             ]
@@ -79,7 +87,7 @@ def code_change(
         _console.print(f" - {condition}", style=STYLE_LLM)
     print()
     _console.print("Coding agent response:", style=STYLE_STATUS)
-    response = apply_code_change(project, change)
+    response = apply_code_change(project, change, parent_agent=parent_agent)
     _print_llm(response)
     print()
     return response
@@ -137,8 +145,8 @@ class CliAgent(Agent):
 
             elif user_message == "/code":
                 plan = self.messages[-1].content
-                title = ExtractTitleAgent(project=self.project, plan=plan).answer()
-                response = code_change(self.project, title, plan)
+                title = ExtractTitleAgent(project=self.project, plan=plan, parent=self).answer()
+                response = code_change(self.project, self, title, plan, files=[])
                 _print_llm(response)
                 continue
 
@@ -171,7 +179,7 @@ class ApprovalConditionsAgent(Agent):
         "You MUST respond with a valid JSON list, containing one or more shell command lines to validate the change."
     )
 
-    def __init__(self, project: Project, task: str):
+    def __init__(self, project: Project, task: str, **kwargs):
         super().__init__(
             project=project,
             system_prompt=self.PROMPT.format(
@@ -179,6 +187,7 @@ class ApprovalConditionsAgent(Agent):
             ),
             tools=[view_file, run, ls],
             enable_reasoning=True,
+            **kwargs,
         )
 
     def answer_format_prompt(self) -> str:
@@ -192,12 +201,13 @@ class ExtractTitleAgent(Agent):
     PROMPT = "Create a one sentence title for this plan that captures the intent of the change:\n\n{plan}\n\n{format}"
     ANSWER_FORMAT = "You must return a valid JSON object in the format: {'title': <str containing title of change>}"
 
-    def __init__(self, project, plan):
+    def __init__(self, project, plan, **kwargs):
         super().__init__(
             project=project,
             system_prompt=self.PROMPT.format(format=self.ANSWER_FORMAT, plan=plan),
             tools=[],
             enable_reasoning=False,
+            **kwargs,
         )
 
     def answer_format_prompt(self):

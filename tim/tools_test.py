@@ -232,6 +232,36 @@ class TestEditFile:
         lines = content.splitlines()
         assert lines == ["line1", "line2", "line3"]
 
+    def test_leading_spaces_preserved_on_replacement(self, project):
+        project.path("test.txt").write_text("    indented_line\nline2\n")
+        edit_file(project, "test.txt", start_line=2, end_line=2, new_content="    new_indented\n")
+        content = project.path("test.txt").read_text()
+        assert content == "    indented_line\n    new_indented\n"
+
+    def test_leading_spaces_preserved_on_insert(self, project):
+        project.path("test.txt").write_text("line1\nline2\n")
+        edit_file(project, "test.txt", start_line=2, end_line=1, new_content="    inserted\n")
+        content = project.path("test.txt").read_text()
+        assert content == "line1\n    inserted\nline2\n"
+
+    def test_leading_tabs_preserved_on_replacement(self, project):
+        project.path("test.txt").write_text("line1\n\ttabbed_line\n")
+        edit_file(project, "test.txt", start_line=2, end_line=2, new_content="\tnew_tabbed\n")
+        content = project.path("test.txt").read_text()
+        assert content == "line1\n\tnew_tabbed\n"
+
+    def test_mixed_whitespace_preserved(self, project):
+        project.path("test.txt").write_text("    spaces\n")
+        edit_file(project, "test.txt", start_line=1, end_line=1, new_content="  \t  mixed\n")
+        content = project.path("test.txt").read_text()
+        assert content == "  \t  mixed\n"
+
+    def test_deeply_nested_indentation_preserved(self, project):
+        project.path("test.txt").write_text("    def foo():\n        pass\n")
+        edit_file(project, "test.txt", start_line=2, end_line=2, new_content="        return True\n")
+        content = project.path("test.txt").read_text()
+        assert content == "    def foo():\n        return True\n"
+
 
 class TestRun:
     def test_basic_command_execution(self, mock_project):

@@ -1,5 +1,4 @@
 import logging
-import re
 from pathlib import Path
 
 import click
@@ -45,8 +44,7 @@ def log(log_file: str, output_path: str | None) -> None:
     log_path = Path(log_file)
 
     if output_path is None:
-        stem = re.sub(r"\.jsonl$", "", log_path.name, flags=re.IGNORECASE)
-        output_path = f"{stem}.html"
+        output_path = str(log_path.with_suffix(".html"))
 
     html_content = html_from_log(log_file)
     Path(output_path).write_text(html_content, encoding="utf-8")

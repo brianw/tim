@@ -4,9 +4,10 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
-from typing import Annotated, get_args, get_origin
+from time import perf_counter
+from typing import Annotated, get_args, get_origin, Optional
 from openai import OpenAI, BadRequestError
-from pydantic import Field, create_model, validate_call
+from pydantic import Field, create_model
 from tim import Project
 
 
@@ -40,35 +41,54 @@ def _tool_name(tool: Callable) -> str:
     return tool.__name__ if hasattr(tool, "__name__") else type(tool).__name__
 
 
-def _tool_schema(tool: Callable) -> dict:
-    fn = tool if inspect.isfunction(tool) or inspect.ismethod(tool) else tool.__call__
-    sig = inspect.signature(fn)
-    params = list(sig.parameters.items())
+def _tool_fn(tool: Callable) -> Callable:
+    return tool if inspect.isfunction(tool) or inspect.ismethod(tool) else tool.__call__
 
-    if not params or params[0][0] != "project":
-        raise TypeError(f"{_tool_name(tool)} must have 'project' as its first parameter")
 
-    doc = inspect.getdoc(fn)
-    if doc is None:
-        raise TypeError(f"{_tool_name(tool)} must have a docstring")
-
+def _annotated_fields(fn: Callable) -> dict:
     fields = {}
-    for name, param in params[1:]:
-        annotation = param.annotation
-        if get_origin(annotation) is Annotated:
-            base, desc = get_args(annotation)
-            fields[name] = (base, Field(..., description=desc))
-        else:
-            fields[name] = (annotation, ...)
-    model = create_model(_tool_name(tool), **fields)
-    return {
-        "type": "function",
-        "function": {
-            "name": _tool_name(tool),
-            "description": doc,
-            "parameters": model.model_json_schema(),
-        },
-    }
+    for name, param in inspect.signature(fn).parameters.items():
+        if get_origin(param.annotation) is Annotated:
+            base, desc = get_args(param.annotation)
+            default = ... if param.default is inspect.Parameter.empty else param.default
+            fields[name] = (base, Field(default, description=desc))
+    return fields
+
+
+def _injected_names(fn: Callable) -> tuple[str, ...]:
+    return tuple(
+        name
+        for name, param in inspect.signature(fn).parameters.items()
+        if get_origin(param.annotation) is not Annotated
+    )
+
+
+class Tool:
+    def __init__(self, tool: Callable):
+        self.name = _tool_name(tool)
+        self.fn = _tool_fn(tool)
+        doc = inspect.getdoc(self.fn)
+        if doc is None:
+            raise TypeError(f"{self.name} must have a docstring")
+        self.description = doc
+        self.arguments = create_model(self.name, **_annotated_fields(self.fn))
+        self.injected_names = _injected_names(self.fn)
+
+    @property
+    def schema(self) -> dict:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.arguments.model_json_schema(),
+            },
+        }
+
+    def call(self, injectables: dict, arguments: dict) -> str:
+        validated = self.arguments(**arguments)
+        injected = {name: injectables[name] for name in self.injected_names if name in injectables}
+        return self.fn(**injected, **validated.model_dump())
 
 
 def api_client() -> OpenAI:
@@ -83,23 +103,22 @@ class Agent:
         tools: list[Callable],
         context_window_size: int = CONTEXT_WINDOW_SIZE,
         enable_reasoning: bool = True,
+        parent: Optional["Agent"] = None,
     ):
         self.project = project
         self.context_window_size = context_window_size
+        wrapped_tools = [Tool(tool) for tool in tools]
         self.completion_fn = partial(
             api_client().chat.completions.create,
             model=MODEL,
-            tools=[_tool_schema(tool) for tool in tools],
+            tools=[tool.schema for tool in wrapped_tools],
             parallel_tool_calls=False,
         )
-        self.tools_by_name = {
-            _tool_name(tool): validate_call(
-                tool if inspect.isfunction(tool) or inspect.ismethod(tool) else tool.__call__
-            )
-            for tool in tools
-        }
+        self.tools_by_name = {tool.name: tool for tool in wrapped_tools}
+        self.injectables = {"project": project, "parent_agent": self}
         self.messages = [{"role": "system", "content": system_prompt}]
         self.enable_reasoning = enable_reasoning
+        self.parent = parent
         self.log_message(self.messages[0])
 
         self.tool_calls: list[ToolCall] = []
@@ -125,8 +144,10 @@ class Agent:
             for tool_call in message.tool_calls:
                 logger.debug(f"[{turn=}] LLM requested tool: {tool_call.function.name}({tool_call.function.arguments})")
 
-                tool_callable = self.tools_by_name[tool_call.function.name]
-                result = tool_callable(self.project, **json.loads(tool_call.function.arguments))
+                tool = self.tools_by_name[tool_call.function.name]
+                started_at = perf_counter()
+                result = tool.call(self.injectables, json.loads(tool_call.function.arguments))
+                duration = perf_counter() - started_at
                 logger.debug(f"[{turn=}] Tool returned: {result}")
 
                 estimated_tokens = len(result) / ESTIMATED_CHARACTERS_PER_TOKEN
@@ -136,7 +157,7 @@ class Agent:
                     )
                     result = f"Tool use error: the tool returned a response containing {len(result)} characters, too large for this conversation. Please refine your operation."
 
-                self.add_tool_response(tool_call, result)
+                self.add_tool_response(tool_call, result, duration)
 
         raise MaxToolCallsExceeded(f"Failed to complete after {max_turns=} iterations")
 
@@ -145,11 +166,12 @@ class Agent:
         self.messages.append(message)
         self.log_message(message)
 
-    def add_tool_response(self, tool_call, result: str):
+    def add_tool_response(self, tool_call, result: str, duration: float):
         message = {
             "role": "tool",
             "tool_call_id": tool_call.id,
             "content": result,
+            "duration": duration,
         }
         self.messages.append(message)
         self.log_message(message)

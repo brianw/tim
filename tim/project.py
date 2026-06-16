@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 
-from tim.agentmessage import AgentMessage, ToolCall
+from tim.agentmessage import AgentMessage, AgentMessageSource, ToolCall
 
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,12 @@ def _extract_tool_call_id(message) -> str:
     if isinstance(message, dict):
         return message["tool_call_id"]
     return message.tool_call_id
+
+
+def _extract_duration(message) -> float:
+    if isinstance(message, dict):
+        return message["duration"]
+    return message.duration
 
 
 def _convert_tool_calls(raw_tool_calls):
@@ -110,6 +116,7 @@ class Project:
         message,
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
+        parent: AgentMessageSource | None = None,
     ) -> AgentMessage:
         message_role = _extract_role(message)
 
@@ -120,6 +127,7 @@ class Project:
                     agent=agent_name,
                     agent_instance=agent_instance,
                     content=content,
+                    parent=parent,
                 )
             case "system":
                 content = _extract_content(message)
@@ -127,6 +135,7 @@ class Project:
                     agent=agent_name,
                     agent_instance=agent_instance,
                     content=content,
+                    parent=parent,
                 )
             case "tool":
                 tool_call_id = _extract_tool_call_id(message)
@@ -136,6 +145,8 @@ class Project:
                     agent_instance=agent_instance,
                     tool_call_id=tool_call_id,
                     content=content,
+                    duration=_extract_duration(message),
+                    parent=parent,
                 )
             case "assistant":
                 content = _extract_content(message)
@@ -150,20 +161,29 @@ class Project:
                     tool_calls=tool_calls or None,
                     prompt_tokens=prompt_tokens or 0,
                     completion_tokens=completion_tokens or 0,
+                    parent=parent,
                 )
             case unknown_role:
                 raise ValueError(f"Unknown message role: {unknown_role}")
 
+    def _agent_source(self, agent) -> AgentMessageSource:
+        parent = agent.parent
+        return AgentMessageSource(
+            agent=agent.__class__.__name__,
+            agent_instance=id(agent),
+            parent=self._agent_source(parent) if parent is not None else None,
+        )
+
     def agent_log(self, agent, message, prompt_tokens: int | None = None, completion_tokens: int | None = None):
-        agent_name = agent.__class__.__name__
-        agent_instance = id(agent)
+        source = self._agent_source(agent)
 
         agent_message = self._build_agent_message(
-            agent_name=agent_name,
-            agent_instance=agent_instance,
+            agent_name=source.agent,
+            agent_instance=source.agent_instance,
             message=message,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            parent=source.parent,
         )
 
         self._write_agent_log(agent_message.to_dict())

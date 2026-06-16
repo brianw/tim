@@ -11,7 +11,7 @@ llama-server --metrics
 Run the dashboard:
 
 ```bash
-uv run main.py
+uv run llmmetrics.py
 ```
 
 Open <http://localhost:3000>.
@@ -20,7 +20,7 @@ The default llama-server endpoint is `http://lab.dogg.ie:8080`. Override it or
 the dashboard port with:
 
 ```bash
-uv run main.py --llama-url http://localhost:8080 --port 3000
+uv run llmmetrics.py --llama-url http://localhost:8080 --port 3000
 ```
 
 The app polls `/metrics` and `/slots` every five seconds and keeps one hour of
