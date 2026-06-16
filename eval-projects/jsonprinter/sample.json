@@ -1,0 +1,15 @@
+{
+  "string": "Hello, JSON! Quotes: \" Backslash: \\ Newline:\n Unicode: ☃",
+  "numbers": {
+    "integer": 42,
+    "negative": -7,
+    "decimal": 3.14,
+    "exponent": 6.02e23
+  },
+  "booleanTrue": true,
+  "booleanFalse": false,
+  "nullValue": null,
+  "array": ["text", 123, false, null, { "nested": [1, 2, 3] }],
+  "emptyObject": {},
+  "emptyArray": []
+}
