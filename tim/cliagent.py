@@ -76,12 +76,14 @@ class CliAgent(Agent):
                 filename = user_message.split()[1]
                 self.save_change(filename)
                 _console.print(f"Wrote {filename}", style=STYLE_STATUS)
+                continue
 
             elif user_message.startswith("/run "):
                 filename = user_message.split()[1]
                 change = Change.from_yaml(Path(filename).read_text())
                 _console.print(f"Applying {filename}", style=STYLE_STATUS)
                 _print_llm(apply_code_change(project=self.project, change=change, parent_agent=self))
+                continue
 
             self.add_user_message(user_message)
             _print_llm(self.start())
