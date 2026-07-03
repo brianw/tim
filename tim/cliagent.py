@@ -138,17 +138,32 @@ class ApprovalConditionsAgent(Agent):
 class ExtractChangeAgent(Agent):
     PROMPT = dedent(
         """
-        Extract a structured coding change from the implementation plan below.
+        Convert the implementation plan below into a structured Change that another coding agent can
+        execute without seeing the original conversation.
 
-        Preserve the plan's meaning and do not invent requirements. Use:
-        - title: a brief title for the change
-        - desc: the implementation plan, or null if there is no description
-        - shoulds: explicitly recommended requirements
-        - musts: explicitly mandatory requirements
-        - approvals: explicit validation commands or approval conditions
+        Preserve the plan's intent, scope, filenames, technical details, and stated constraints. Do not
+        invent requirements, implementation details, validation steps, or project conventions. Do not
+        weaken mandatory language or promote a suggestion into a requirement.
+
+        Populate the fields as follows:
+
+        - title: A short, specific, action-oriented summary of the requested change.
+        - desc: A self-contained description of what to change and how the plan says to approach it.
+          Include relevant context, files, APIs, behavior, and edge cases. Exclude requirements already
+          captured in shoulds or musts. Use null only when the plan contains no descriptive information.
+        - shoulds: Explicit preferences, recommendations, or non-mandatory guidance. Write each as a
+          standalone statement. Use an empty list when none are present.
+        - musts: Explicit hard requirements, prohibitions, invariants, or acceptance criteria. Write each
+          as a standalone statement. Use an empty list when none are present.
+        - approvals: Explicit commands or checks used to prove the change works. Preserve shell commands
+          exactly. Use an empty list when the plan gives no validation steps.
+
+        Return only the requested JSON object. Do not include Markdown fences or explanatory text.
 
         Implementation plan:
+        <plan>
         {plan}
+        </plan>
 
         {format}
         """
