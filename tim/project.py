@@ -91,7 +91,7 @@ class Project:
 
     def __post_init__(self) -> None:
         timestamp = datetime.now().isoformat().replace(":", "-")
-        self.agent_log_path = self.root / ".tim" / "agent-logs" / f"{timestamp}-{os.getpid()}.jsonl"
+        self.agent_log_path = Path.home() / ".tim" / self.root.name / "agent-logs" / f"{timestamp}-{os.getpid()}.jsonl"
 
     @classmethod
     def cwd(cls) -> "Project":
