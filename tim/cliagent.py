@@ -1,12 +1,12 @@
 import logging
+from pathlib import Path
 from textwrap import dedent
-from typing import Annotated
 
 from prompt_toolkit import PromptSession
 from rich.console import Console
 from rich.markdown import Markdown
 
-from tim import Project, ChangeBuilder
+from tim import Change, Project
 from tim.agent import Agent
 from tim.codechange import apply_code_change
 from tim.tools import view_file, run, ls
@@ -26,73 +26,6 @@ def _print_llm(text: str) -> None:
     _console.print(Markdown(text), style=STYLE_LLM)
 
 
-def code_change(
-    project: Project,
-    parent_agent: Agent,
-    title: Annotated[str, "A brief title for this change"],
-    plan: Annotated[
-        str,
-        "Your detailed plan for this change, including approach to take, filenames to modify and commands to run. You MUST provide as much detail as possible.",
-    ],
-    files: Annotated[
-        list[str],
-        "The list of file paths that need to be examined or modified for this change.",
-    ],
-) -> str:
-    """
-    Required for all coding tasks: creating new files, editing existing code, fixing bugs, adding features.
-
-    You MUST instruct this tool as you would a junior engineer.
-    You MUST provide full details of the change along with your COMPLETE plan.
-    """
-
-    _console.print(f"*** Starting coding agent for: {title} ***", style=STYLE_STATUS)
-    _console.print(Markdown(plan), style=STYLE_LLM)
-    _console.print("\nFiles involved:", style=STYLE_STATUS)
-    for file in files:
-        _console.print(f" - {file}", style=STYLE_STATUS)
-    _console.print("\nApproval steps:", style=STYLE_STATUS)
-
-    complete_when = ApprovalConditionsAgent(project, f"--- {title} ---\n{plan}", parent=parent_agent).answer()
-    change = (
-        ChangeBuilder(title)
-        .desc(f"{plan}\nFiles to examine/modify: {files}\n")
-        .shoulds(
-            [
-                "Use good, teutonic variable names",
-                "No single letter variable names, outside of loop indexes or comprehensions",
-                "Functions should be short, no larger than 20 lines",
-                "Avoid duplicating code by extracting shared logic to reusable functions",
-                "Minimise code inside an except block (extract to another function if neccessary)",
-                "Follow the same patterns and conventions as the rest of the codebase",
-            ]
-        )
-        .musts(
-            [
-                "Never silently swallow errors",
-                "Avoid fallbacks and default values, fail early instead. E.g. when reading an environment variable always use os.environ['SOME_KEY'] rather than os.getenv('SOME_KEY', 'default-value')",
-                "No docstrings or comments, the implementation must explain itself with good naming and composition -- except where required for tool definitions (e.g. tim/tools.py)",
-                "No imports inside of functions",
-            ]
-        )
-        .approvals(
-            [
-                "./lint passes",
-                *complete_when,
-            ]
-        )
-        .build()
-    )
-    for condition in complete_when:
-        _console.print(f" - {condition}", style=STYLE_LLM)
-    print()
-    _console.print("Coding agent response:", style=STYLE_STATUS)
-    response = apply_code_change(project, change, parent_agent=parent_agent)
-    _print_llm(response)
-    print()
-    return response
-
-
 class CliAgent(Agent):
     PROMPT = dedent(
         """
@@ -101,10 +34,6 @@ class CliAgent(Agent):
 
         The engineer may refer to existing code or system behavior. Use tools to understand the current
         state if it will help the answer.
-
-        You MUST use the code_change tool when changing or adding project code.
-        - This tool ensures edits conform to coding standards and guidelines. Changes made without this tool will be rejected.
-        - You MUST give the code_change tool your full, researched plan.
 
         Project root is: {root}
         {listing}
@@ -119,7 +48,7 @@ class CliAgent(Agent):
         super().__init__(
             project=project,
             system_prompt=prompt,
-            tools=[code_change, view_file, run, ls],
+            tools=[view_file, run, ls],
         )
 
     def run_forever(self):
@@ -143,15 +72,24 @@ class CliAgent(Agent):
                 _console.print("Thinking disabled", style=STYLE_STATUS)
                 continue
 
-            elif user_message == "/code":
-                plan = self.messages[-1].content
-                title = ExtractTitleAgent(project=self.project, plan=plan, parent=self).answer()
-                response = code_change(self.project, self, title, plan, files=[])
-                _print_llm(response)
-                continue
+            elif user_message.startswith("/save "):
+                filename = user_message.split()[1]
+                self.save_change(filename)
+                _console.print(f"Wrote {filename}", style=STYLE_STATUS)
+
+            elif user_message.startswith("/run "):
+                filename = user_message.split()[1]
+                change = Change.from_yaml(Path(filename).read_text())
+                _console.print(f"Applying {filename}", style=STYLE_STATUS)
+                _print_llm(apply_code_change(project=self.project, change=change, parent_agent=self))
 
             self.add_user_message(user_message)
             _print_llm(self.start())
+
+    def save_change(self, filename: str):
+        plan = self.messages[-1].content
+        change = ExtractChangeAgent(project=self.project, parent=self, plan=plan).answer()
+        Path(filename).write_text(change.to_yaml())
 
 
 class ApprovalConditionsAgent(Agent):
@@ -197,24 +135,65 @@ class ApprovalConditionsAgent(Agent):
         return isinstance(answer, list)
 
 
-class ExtractTitleAgent(Agent):
-    PROMPT = "Create a one sentence title for this plan that captures the intent of the change:\n\n{plan}\n\n{format}"
-    ANSWER_FORMAT = "You must return a valid JSON object in the format: {'title': <str containing title of change>}"
+class ExtractChangeAgent(Agent):
+    PROMPT = dedent(
+        """
+        Extract a structured coding change from the implementation plan below.
 
-    def __init__(self, project, plan, **kwargs):
+        Preserve the plan's meaning and do not invent requirements. Use:
+        - title: a brief title for the change
+        - desc: the implementation plan, or null if there is no description
+        - shoulds: explicitly recommended requirements
+        - musts: explicitly mandatory requirements
+        - approvals: explicit validation commands or approval conditions
+
+        Implementation plan:
+        {plan}
+
+        {format}
+        """
+    ).strip()
+    ANSWER_FORMAT = dedent(
+        """
+        You MUST respond with a valid JSON object in this exact format:
+        {
+            "title": <string>,
+            "desc": <string or null>,
+            "shoulds": <list of strings>,
+            "musts": <list of strings>,
+            "approvals": <list of strings>
+        }
+        """
+    ).strip()
+
+    def __init__(self, project: Project, parent: Agent, plan: str):
         super().__init__(
             project=project,
+            parent=parent,
             system_prompt=self.PROMPT.format(format=self.ANSWER_FORMAT, plan=plan),
             tools=[],
             enable_reasoning=False,
-            **kwargs,
         )
 
     def answer_format_prompt(self):
         return self.ANSWER_FORMAT
 
-    def validate_answer(self, answer):
-        return "title" in answer
+    def validate_answer(self, answer) -> bool:
+        if not isinstance(answer, dict):
+            return False
 
-    def format_answer(self, answer):
-        return answer["title"].strip()
+        if set(answer) != {"title", "desc", "shoulds", "musts", "approvals"}:
+            return False
+
+        list_fields = ("shoulds", "musts", "approvals")
+        return (
+            isinstance(answer["title"], str)
+            and (answer["desc"] is None or isinstance(answer["desc"], str))
+            and all(isinstance(answer[field], list) for field in list_fields)
+            and all(isinstance(item, str) for item in answer["shoulds"])
+            and all(isinstance(item, str) for item in answer["musts"])
+            and all(isinstance(item, str) for item in answer["approvals"])
+        )
+
+    def format_answer(self, answer) -> Change:
+        return Change(**answer)

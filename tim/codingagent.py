@@ -10,6 +10,24 @@ from tim.tools import all_tools, view_file, ls, run
 logger = logging.getLogger(__name__)
 
 
+def format_change(change: Change) -> str:
+    def format_steps(title: str, steps: list[str]) -> str:
+        if not steps:
+            return ""
+        return title + "\n" + "\n".join(f"- {step}" for step in steps)
+
+    return dedent(
+        f"""
+        --- {change.title} ---
+        {change.desc}
+
+        {format_steps("You SHOULD:", change.shoulds)}
+
+        {format_steps("You MUST:", change.musts)}
+        """
+    ).strip()
+
+
 class CodingAgent(Agent):
     PROMPT = dedent(
         """
@@ -32,7 +50,7 @@ class CodingAgent(Agent):
 
     def __init__(self, project: Project, change: Change, **kwargs):
         prompt = self.PROMPT.format(
-            task=change.full_description(),
+            task=format_change(change),
             root=project.run("pwd").stdout.strip(),
             listing=project.run("ls -la").stdout,
         )
