@@ -85,6 +85,10 @@ class CliAgent(Agent):
                 _print_llm(apply_code_change(project=self.project, change=change, parent_agent=self))
                 continue
 
+            elif user_message.startswith("/"):
+                _console.print(f"Unknown command: {user_message}", style=STYLE_ERROR)
+                continue
+
             self.add_user_message(user_message)
             _print_llm(self.start())
 
