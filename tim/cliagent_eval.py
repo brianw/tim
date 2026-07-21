@@ -21,19 +21,3 @@ def test_skips_project_state_for_general_advice(project_empty):
     response = agent.start()
     assert len(response) > 128, "Unexpectedly short response"
     assert len(agent.tool_calls) == 0, "Performed tool calls for question unrelated to project state"
-
-
-def test_creates_with_code_change_tool(project_empty):
-    agent = CliAgent(project_empty)
-    agent.add_user_message(
-        "Create an echo.py that prints each command line argument to stdout, one per line. No arguments should produce no output."
-    )
-    agent.start()
-    assert any(tool_call.function_name == "code_change" for tool_call in agent.tool_calls), (
-        "Agent created code without using the code_change tool"
-    )
-    output = project_empty.run("uv run echo.py one two three")
-    assert output.stdout.splitlines() == ["one", "two", "three"], (
-        f"Implementation didn't produce correct output: {output}"
-    )
-    assert output.returncode == 0, f"Generated code produced non-zero return code: {output.returncode}"

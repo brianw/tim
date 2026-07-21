@@ -14,7 +14,9 @@ def pytest_addoption(parser):
 
 
 def pytest_collection_modifyitems(config, items):
-    if not config.getoption("--evals"):
+    if config.getoption("--evals"):
+        items[:] = [item for item in items if item.path.name.endswith("_eval.py")]
+    else:
         items[:] = [item for item in items if not item.path.name.endswith("_eval.py")]
 
 

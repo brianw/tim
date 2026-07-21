@@ -3,7 +3,6 @@ import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from functools import partial
 from time import perf_counter
 from typing import Annotated, get_args, get_origin, Optional
 from openai import OpenAI, BadRequestError
@@ -12,8 +11,10 @@ from tim import Project
 
 
 ENDPOINT = "http://lab.dogg.ie:8080/v1"
-MODEL = "local"
+MODEL = "Qwen3.6-35B-A3B-UD-Q4_K_M"
 CONTEXT_WINDOW_SIZE = 65535
+REASONING_BUDGET = 16536
+
 ESTIMATED_CHARACTERS_PER_TOKEN = 2.5
 MAX_TOOL_RESULT_TOKENS = CONTEXT_WINDOW_SIZE * 0.2
 
@@ -91,8 +92,42 @@ class Tool:
         return self.fn(**injected, **validated.model_dump())
 
 
-def api_client() -> OpenAI:
-    return OpenAI(base_url=ENDPOINT, api_key="sk-no-key")
+class LlmClient:
+    def __init__(self, model: str, tools: list[dict], enable_reasoning: bool, context_window_size: int):
+        self._client = OpenAI(base_url=ENDPOINT, api_key="sk-no-key")
+        self.model = model
+        self.tools = tools
+        self.enable_reasoning = enable_reasoning
+        self.context_window_size = context_window_size
+
+    def complete(self, messages: list[dict]):
+        try:
+            response = self._client.chat.completions.create(
+                messages=messages,
+                model=self.model,
+                tools=self.tools,
+                parallel_tool_calls=False,
+                extra_body={
+                    "chat_template_kwargs": {
+                        "enable_thinking": self.enable_reasoning,
+                        "preserve_thinking": True,
+                    },
+                    "reasoning_budget": REASONING_BUDGET,
+                },
+            )
+        except BadRequestError as e:
+            if e.type == "exceed_context_size_error":
+                raise ContextWindowExceeded(e)
+            raise
+
+        tokens_used = response.usage.prompt_tokens + response.usage.completion_tokens
+        if tokens_used > self.context_window_size:
+            raise ContextWindowExceeded(f"{tokens_used=} but tim agent limited to {self.context_window_size}")
+
+        return response
+
+    def update_reasoning(self, value: bool):
+        self.enable_reasoning = value
 
 
 class Agent:
@@ -108,22 +143,29 @@ class Agent:
         self.project = project
         self.context_window_size = context_window_size
         wrapped_tools = [Tool(tool) for tool in tools]
-        self.completion_fn = partial(
-            api_client().chat.completions.create,
+        self.llm_client = LlmClient(
             model=MODEL,
             tools=[tool.schema for tool in wrapped_tools],
-            parallel_tool_calls=False,
+            enable_reasoning=enable_reasoning,
+            context_window_size=context_window_size,
         )
         self.tools_by_name = {tool.name: tool for tool in wrapped_tools}
         self.injectables = {"project": project, "parent_agent": self}
         self.messages = [{"role": "system", "content": system_prompt}]
-        self.enable_reasoning = enable_reasoning
         self.parent = parent
         self.log_message(self.messages[0])
 
         self.tool_calls: list[ToolCall] = []
         self.prompt_tokens: int = 0
         self.completion_tokens: int = 0
+
+    @property
+    def enable_reasoning(self) -> bool:
+        return self.llm_client.enable_reasoning
+
+    @enable_reasoning.setter
+    def enable_reasoning(self, value: bool):
+        self.llm_client.enable_reasoning = value
 
     def log_message(self, message, prompt_tokens=None, completion_tokens=None):
         self.project.agent_log(self, message, prompt_tokens, completion_tokens)
@@ -184,25 +226,7 @@ class Agent:
         )
 
     def complete(self):
-        try:
-            response = self.completion_fn(
-                messages=self.messages,
-                extra_body={
-                    "chat_template_kwargs": {
-                        "enable_thinking": self.enable_reasoning,
-                        "preserve_thinking": True,
-                    }
-                },
-            )
-        except BadRequestError as e:
-            if e.type == "exceed_context_size_error":
-                raise ContextWindowExceeded(e)
-            raise
-
-        tokens_used = response.usage.prompt_tokens + response.usage.completion_tokens
-        if tokens_used > self.context_window_size:
-            raise ContextWindowExceeded(f"{tokens_used=} but tim agent limited to {self.context_window_size}")
-
+        response = self.llm_client.complete(self.messages)
         message = response.choices[0].message
         self.messages.append(message)
         self.log_message(
